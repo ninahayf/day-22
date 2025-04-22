@@ -1,5 +1,141 @@
 ---
-title: "day-22"
+title: "daily-assignment 22"
+subtitle: "ESS 330"
+author: 
+  - name: Nina Hayford 
+    email: "ninahayf@colostate.edu"
 format: html
+execute: 
+  echo: true
 ---
 
+## Load Libraries 
+```{r}
+library(dataRetrieval)
+library(dplyr)
+library(lubridate)
+library(timetk)
+library(tidymodels)
+library(modeltime)
+library(fable)
+library(tsibble)
+library(prophet)
+library(ggplot2)
+library(plotly)
+```
+
+## Get and Prep Data 
+```{r}
+poudre_flow <- readNWISdv(siteNumber = "06752260",
+                          parameterCd = "00060",
+                          startDate = "2013-01-01",
+                          endDate = "2023-12-31") |>
+  renameNWISColumns() |>
+  mutate(Date = floor_date(Date, "month")) |>
+  group_by(Date) |>
+  summarise(Flow = mean(Flow, na.rm = TRUE)) |>
+  ungroup()
+```
+
+## Split Data and Build Models 
+```{r}
+# Split training/testing
+splits <- initial_time_split(poudre_flow, prop = 0.9)
+
+# Create Prophet model
+model_prophet <- prophet_reg(seasonality_yearly = TRUE) %>%
+  set_engine("prophet") %>%
+  fit(Flow ~ Date, data = training(splits))
+
+# Create ARIMA model
+model_arima <- arima_reg() %>%
+  set_engine("auto_arima") %>%
+  fit(Flow ~ Date, data = training(splits))
+
+# Combine models
+models_tbl <- modeltime_table(
+  model_prophet,
+  model_arima
+)
+```
+
+## Forecast Next 12 Months 
+```{r}
+forecast_tbl <- models_tbl %>%
+  modeltime_forecast(
+    new_data = testing(splits),
+    actual_data = poudre_flow
+  )
+```
+```{r}
+plot_modeltime_forecast(forecast_tbl)
+```
+
+## Get Real Data for Comparison 
+```{r}
+obs_2024 <- readNWISdv(siteNumber = "06752260",
+                       parameterCd = "00060",
+                       startDate = "2024-01-01",
+                       endDate = "2024-12-31") |>
+  renameNWISColumns() |>
+  mutate(Date = floor_date(Date, "month")) |>
+  group_by(Date) |>
+  summarise(Observed = mean(Flow, na.rm = TRUE)) |>
+  ungroup()
+```
+
+## Predict with the Best Model 
+```{r}
+future_tbl <- poudre_flow %>%
+  bind_rows(
+    tibble(Date = seq.Date(from = as.Date("2024-01-01"),
+                           by = "month", length.out = 12),
+           Flow = NA)
+  )
+
+# Refit and forecast next 12 months
+refit_tbl <- models_tbl %>%
+  modeltime_refit(data = poudre_flow)
+
+# Filter the predictions
+pred_tbl <- refit_tbl %>%
+  modeltime_forecast(
+    new_data = future_tbl,
+    actual_data = poudre_flow
+  ) %>%
+  filter(.key == "prediction")  # Ensure you're getting predictions, not actual values
+
+pred_tbl$Date <- as.Date(pred_tbl$.index)
+
+# Check the structure and the first few rows
+head(pred_tbl)
+```
+
+## Join Observed and Predicted 
+```{r}
+# Join predictions with observed data
+comparison <- left_join(pred_tbl, obs_2024, by = "Date") %>%
+  filter(!is.na(Observed))
+
+# Fit the linear model
+lm_model <- lm(Observed ~ Predicted, data = comparison)
+
+# Check the model summary
+summary(lm_model)
+```
+
+## Compute R^2
+```{r}
+lm_model <- lm(Observed ~ Predicted, data = comparison)
+summary(lm_model)$r.squared
+```
+
+## Plot Predicted vs Observed 
+```{r}
+# Plot Predicted vs Observed with 1:1 line and linear model line
+ggplot(comparison, aes(x = Predicted, y = Observed)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red") +  # 1:1 line
+  geom_smooth(method = "lm", color = "blue") +  # Linear regression line
+  labs(title = "Predicted vs Observed Streamflow", x = "Predicted Flow", y = "Observed Flow")
+```
