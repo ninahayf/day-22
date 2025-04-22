@@ -86,6 +86,7 @@ obs_2024 <- readNWISdv(siteNumber = "06752260",
 
 ## Predict with the Best Model 
 ```{r}
+# Prepare future data for prediction
 future_tbl <- poudre_flow %>%
   bind_rows(
     tibble(Date = seq.Date(from = as.Date("2024-01-01"),
@@ -97,7 +98,7 @@ future_tbl <- poudre_flow %>%
 refit_tbl <- models_tbl %>%
   modeltime_refit(data = poudre_flow)
 
-# Filter the predictions
+# Generate predictions for future data
 pred_tbl <- refit_tbl %>%
   modeltime_forecast(
     new_data = future_tbl,
@@ -105,18 +106,24 @@ pred_tbl <- refit_tbl %>%
   ) %>%
   filter(.key == "prediction")  # Ensure you're getting predictions, not actual values
 
+# Ensure the Date column is correctly formatted
 pred_tbl$Date <- as.Date(pred_tbl$.index)
 
-# Check the structure and the first few rows
+# Check the structure and the first few rows of predictions
 head(pred_tbl)
 ```
 
 ## Join Observed and Predicted 
 ```{r}
+# Rename .value to Predicted in pred_tbl
+pred_tbl <- pred_tbl %>%
+  rename(Predicted = .value)
+
 # Join predictions with observed data
 comparison <- left_join(pred_tbl, obs_2024, by = "Date") %>%
   filter(!is.na(Observed))
 
+# Check the first few rows of the joined data
 head(comparison)
 ```
 ## Fit the Linear Model
