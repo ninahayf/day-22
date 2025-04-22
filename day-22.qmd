@@ -117,10 +117,14 @@ head(pred_tbl)
 comparison <- left_join(pred_tbl, obs_2024, by = "Date") %>%
   filter(!is.na(Observed))
 
+head(comparison)
+```
+## Fit the Linear Model
+```{r}
 # Fit the linear model
 lm_model <- lm(Observed ~ Predicted, data = comparison)
 
-# Check the model summary
+# Print the model summary
 summary(lm_model)
 ```
 
@@ -135,7 +139,9 @@ summary(lm_model)$r.squared
 # Plot Predicted vs Observed with 1:1 line and linear model line
 ggplot(comparison, aes(x = Predicted, y = Observed)) +
   geom_point() +
-  geom_abline(intercept = 0, slope = 1, color = "red") +  # 1:1 line
-  geom_smooth(method = "lm", color = "blue") +  # Linear regression line
-  labs(title = "Predicted vs Observed Streamflow", x = "Predicted Flow", y = "Observed Flow")
+  geom_abline(slope = 1, intercept = 0, color = "red") + # 1:1 line
+  geom_smooth(method = "lm", color = "blue") + # Linear regression line
+  labs(title = "Predicted vs Observed Streamflow",
+       x = "Predicted Flow",
+       y = "Observed Flow")
 ```
